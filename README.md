@@ -4,7 +4,7 @@ A native macOS menu bar app that shows your Claude usage limits: session (5-hour
 
 ![ClaudeBar popover](docs/screenshot.png)
 
-- Lives in your menu bar: `✳ 61%` shows your highest limit at a glance
+- Lives in your menu bar: `✳ 14/10%` shows session (5h) and weekly usage side by side
 - Popover with progress bars and reset times for each limit window
 - Mac-native design, adapts to light and dark mode
 - Refreshes every 5 minutes and whenever you open it

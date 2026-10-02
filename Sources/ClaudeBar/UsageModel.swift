@@ -31,7 +31,8 @@ final class UsageModel: ObservableObject {
         Task { await refresh() }
     }
 
-    var highestUtilization: Double? { windows.map(\.utilization).max() }
+    var sessionUtilization: Double? { windows.first { $0.id == "five_hour" }?.utilization }
+    var weeklyUtilization: Double? { windows.first { $0.id == "seven_day" }?.utilization }
 
     // MARK: - Connect flow
 

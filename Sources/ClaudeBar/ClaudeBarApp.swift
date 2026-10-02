@@ -18,8 +18,10 @@ struct MenuBarLabel: View {
     @ObservedObject var model: UsageModel
 
     var body: some View {
-        if let max = model.highestUtilization {
-            Text("✳ \(Int(max.rounded()))%")
+        if let session = model.sessionUtilization, let weekly = model.weeklyUtilization {
+            Text("✳ \(Int(session.rounded()))/\(Int(weekly.rounded()))%")
+        } else if let only = model.sessionUtilization ?? model.weeklyUtilization {
+            Text("✳ \(Int(only.rounded()))%")
         } else {
             Text(model.connected ? "✳" : "✳ –")
         }
