@@ -14,6 +14,12 @@ A native macOS menu bar app that shows your Claude usage limits: session (5-hour
 ## Install
 
 ```bash
+make install && make open
+```
+
+Or without make:
+
+```bash
 git clone https://github.com/ousid/claudebar
 cd claudebar
 ./scripts/build-app.sh
@@ -22,6 +28,18 @@ open /Applications/ClaudeBar.app
 ```
 
 Requires macOS 13+ and the Swift toolchain. Running `xcode-select --install` is enough, no Xcode needed.
+
+### Make targets
+
+| Target | What it does |
+| --- | --- |
+| `make` / `make all` | build, install, open |
+| `make build` | compile `ClaudeBar.app` in this directory |
+| `make install` | build and copy the app to `INSTALL_DIR` (default `/Applications`) |
+| `make open` | launch the installed app |
+| `make uninstall` | quit and remove the app; leaves your Keychain token behind |
+
+Override the install location with `make install INSTALL_DIR=~/Applications`.
 
 ## Connect your account
 
@@ -39,7 +57,7 @@ Found a security issue? See [SECURITY.md](SECURITY.md).
 ## Uninstall
 
 ```bash
-rm -rf /Applications/ClaudeBar.app
+make uninstall
 security delete-generic-password -s com.claudebar.oauth
 ```
 
