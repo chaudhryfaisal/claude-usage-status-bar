@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+
+// Shared signing config (created by `make keystore`). Falls back to Android's
+// default debug key if signing/keystore.properties doesn't exist yet.
+def ksProps = new Properties()
+def ksPropsFile = rootProject.file('signing/keystore.properties')
+if (ksPropsFile.exists()) ksPropsFile.withInputStream { ksProps.load(it) }
+def haveKeystore = ksPropsFile.exists()
+
+android {
+    namespace 'com.example.claudebar'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.example.claudebar'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    if (haveKeystore) {
+        signingConfigs {
+            shared {
+                storeFile rootProject.file(ksProps['storeFile'])
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias']
+                keyPassword ksProps['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (haveKeystore) signingConfig signingConfigs.shared
+        }
+        release {
+            minifyEnabled false
+            if (haveKeystore) signingConfig signingConfigs.shared
+        }
+    }
+}
+// Zero third-party dependencies, like the macOS original.

@@ -1,0 +1,8 @@
+.gradle
+.gradle-docker
+build
+app/build
+dist
+signing
+.idea
+.git
