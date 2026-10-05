@@ -130,7 +130,19 @@ extension UsageWindow {
         guard let resetsAt else { return nil }
         let f = DateFormatter()
         f.dateFormat = Calendar.current.isDateInToday(resetsAt) ? "HH:mm" : "EEE HH:mm"
-        return "resets \(f.string(from: resetsAt))"
+        return "resets \(f.string(from: resetsAt)) (\(Self.remainingText(until: resetsAt)))"
+    }
+
+    /// "1h10m", "45m", "3d4h", or "now" when the window has already reset.
+    static func remainingText(until date: Date, now: Date = Date()) -> String {
+        let minutes = max(0, Int((date.timeIntervalSince(now) / 60).rounded()))
+        if minutes == 0 { return "now" }
+        let d = minutes / 1440
+        let h = (minutes % 1440) / 60
+        let m = minutes % 60
+        if d > 0 { return h > 0 ? "\(d)d\(h)h" : "\(d)d" }
+        if h > 0 { return m > 0 ? "\(h)h\(m)m" : "\(h)h" }
+        return "\(m)m"
     }
 
     var color: Color {
