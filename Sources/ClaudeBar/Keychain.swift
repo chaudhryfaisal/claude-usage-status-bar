@@ -2,12 +2,16 @@ import Foundation
 import Security
 
 enum Keychain {
-    static let service = "com.claudebar.oauth"
+    static let baseService = "com.claudebar.oauth"
 
-    static func save(_ data: Data) {
+    static func service(for accountID: String?) -> String {
+        accountID.map { "\(baseService).\($0)" } ?? baseService
+    }
+
+    static func save(_ data: Data, accountID: String? = nil) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: service(for: accountID),
         ]
         SecItemDelete(query as CFDictionary)
         var add = query
@@ -16,10 +20,10 @@ enum Keychain {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    static func load() -> Data? {
+    static func load(accountID: String? = nil) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: service(for: accountID),
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -28,10 +32,10 @@ enum Keychain {
         return result as? Data
     }
 
-    static func delete() {
+    static func delete(accountID: String? = nil) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: service(for: accountID),
         ]
         SecItemDelete(query as CFDictionary)
     }

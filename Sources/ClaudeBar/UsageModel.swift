@@ -8,69 +8,53 @@ struct UsageWindow: Identifiable {
     let resetsAt: Date?
 }
 
+struct AccountMeta: Codable {
+    let id: String
+    var alias: String
+}
+
 @MainActor
-final class UsageModel: ObservableObject {
+final class AccountModel: ObservableObject, Identifiable {
+    let id: String
+    @Published var alias: String
     @Published var windows: [UsageWindow] = []
-    @Published var connected = Token.load() != nil
-    @Published var lastError: String?
+    @Published var connected: Bool
     @Published var stale = false
-    @Published var pendingAuth: OAuth.PKCE?
+    @Published var lastError: String?
+    @Published var lastRefreshed: Date?
 
-    private var timer: Timer?
-    private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private static let knownLabels: [(key: String, label: String)] = [
-        ("five_hour", "Session (5h)"),
-        ("seven_day", "Weekly"),
-        ("seven_day_opus", "Weekly · Opus"),
-    ]
+    init(id: String, alias: String) {
+        self.id = id
+        self.alias = alias
+        self.connected = Token.load(accountID: id) != nil
+    }
 
-    init() {
-        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { await self?.refresh() }
-        }
-        Task { await refresh() }
+    var refreshedText: String? {
+        guard let lastRefreshed else { return nil }
+        let s = max(0, Int(Date().timeIntervalSince(lastRefreshed)))
+        if s < 5 { return "just now" }
+        if s < 60 { return "\(s)s ago" }
+        let m = s / 60, sec = s % 60
+        if m < 60 { return sec > 0 ? "\(m)m\(sec)s ago" : "\(m)m ago" }
+        let h = m / 60
+        return "\(h)h\(m % 60)m ago"
     }
 
     var sessionUtilization: Double? { windows.first { $0.id == "five_hour" }?.utilization }
     var weeklyUtilization: Double? { windows.first { $0.id == "seven_day" }?.utilization }
 
-    // MARK: - Connect flow
-
-    func startConnect() {
-        let pkce = OAuth.PKCE()
-        pendingAuth = pkce
-        NSWorkspace.shared.open(OAuth.authorizeURL(pkce))
-    }
-
-    func finishConnect(code: String) async {
-        guard let pkce = pendingAuth else { return }
-        do {
-            _ = try await OAuth.exchange(pastedCode: code, pkce: pkce)
-            pendingAuth = nil
-            connected = true
-            lastError = nil
-            await refresh()
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func disconnect() {
-        Keychain.delete()
-        connected = false
-        windows = []
-        pendingAuth = nil
-    }
-
-    // MARK: - Fetch
-
     func refresh() async {
-        guard var token = Token.load() else { connected = false; return }
+        guard var token = Token.load(accountID: id) else {
+            connected = false
+            windows = []
+            return
+        }
         do {
             if token.needsRefresh {
                 token = try await OAuth.refresh(token)
+                token.save(accountID: id)
             }
-            var req = URLRequest(url: Self.usageURL)
+            var req = URLRequest(url: UsageModel.usageURL)
             req.setValue("Bearer \(token.accessToken)", forHTTPHeaderField: "Authorization")
             req.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
             req.setValue("claude-code/1.0.119", forHTTPHeaderField: "User-Agent")
@@ -78,20 +62,162 @@ final class UsageModel: ObservableObject {
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 {
                 connected = false
-                lastError = "Session expired — reconnect your account."
+                windows = []
+                lastError = "Session expired — reconnect this account."
                 return
             }
             guard status == 200 else {
                 stale = true
                 return
             }
-            windows = Self.parse(data)
+            connected = true
+            windows = UsageModel.parse(data)
             stale = false
             lastError = nil
+            lastRefreshed = Date()
         } catch {
             stale = true
         }
     }
+}
+
+@MainActor
+final class UsageModel: ObservableObject {
+    @Published var accounts: [AccountModel] = []
+    @Published var primaryID: String?
+    @Published var pendingAuth: OAuth.PKCE?
+    @Published var pendingReauthID: String?
+    @Published var lastError: String?
+
+    static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    private var timer: Timer?
+    private static let knownLabels: [(key: String, label: String)] = [
+        ("five_hour", "Session (5h)"),
+        ("seven_day", "Weekly"),
+        ("seven_day_opus", "Weekly · Opus"),
+    ]
+
+    init() {
+        migrateLegacyToken()
+        loadState()
+        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { await self?.refreshAll() }
+        }
+        Task { await refreshAll() }
+    }
+
+    var primary: AccountModel? {
+        accounts.first { $0.id == primaryID } ?? accounts.first
+    }
+
+    // MARK: - Account management
+
+    func rename(_ account: AccountModel, to alias: String) {
+        account.alias = alias.isEmpty ? "Account" : alias
+        persist()
+    }
+
+    func move(_ account: AccountModel, by delta: Int) {
+        guard let i = accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        let j = i + delta
+        guard accounts.indices.contains(j) else { return }
+        accounts.swapAt(i, j)
+        persist()
+    }
+
+    func setPrimary(_ account: AccountModel) {
+        primaryID = account.id
+        persist()
+    }
+
+    func disconnect(_ account: AccountModel) {
+        Keychain.delete(accountID: account.id)
+        accounts.removeAll { $0.id == account.id }
+        if primaryID == account.id { primaryID = accounts.first?.id }
+        persist()
+    }
+
+    // MARK: - Connect flow
+
+    func startConnect(reauth account: AccountModel? = nil) {
+        let pkce = OAuth.PKCE()
+        pendingAuth = pkce
+        pendingReauthID = account?.id
+        lastError = nil
+        NSWorkspace.shared.open(OAuth.authorizeURL(pkce))
+    }
+
+    func finishConnect(code: String) async {
+        guard let pkce = pendingAuth else { return }
+        do {
+            let token = try await OAuth.exchange(pastedCode: code, pkce: pkce)
+            if let id = pendingReauthID, let acc = accounts.first(where: { $0.id == id }) {
+                token.save(accountID: id)
+                acc.connected = true
+                acc.lastError = nil
+                await acc.refresh()
+            } else {
+                let id = UUID().uuidString
+                token.save(accountID: id)
+                let acc = AccountModel(id: id, alias: "Account \(accounts.count + 1)")
+                accounts.append(acc)
+                if primaryID == nil { primaryID = id }
+                await acc.refresh()
+            }
+            pendingAuth = nil
+            pendingReauthID = nil
+            lastError = nil
+            persist()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func cancelConnect() {
+        pendingAuth = nil
+        pendingReauthID = nil
+    }
+
+    func refreshAll() async {
+        await withTaskGroup(of: Void.self) { group in
+            for acc in accounts {
+                group.addTask { await acc.refresh() }
+            }
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func persist() {
+        let metas = accounts.map { AccountMeta(id: $0.id, alias: $0.alias) }
+        UserDefaults.standard.set(try? JSONEncoder().encode(metas), forKey: "accounts")
+        UserDefaults.standard.set(primaryID, forKey: "primaryAccountID")
+    }
+
+    private func loadState() {
+        primaryID = UserDefaults.standard.string(forKey: "primaryAccountID")
+        if let data = UserDefaults.standard.data(forKey: "accounts"),
+           let metas = try? JSONDecoder().decode([AccountMeta].self, from: data) {
+            accounts = metas.map { AccountModel(id: $0.id, alias: $0.alias) }
+        }
+        if primaryID == nil { primaryID = accounts.first?.id }
+    }
+
+    /// One-time import of the pre-multi-account single-token Keychain entry.
+    private func migrateLegacyToken() {
+        guard UserDefaults.standard.data(forKey: "accounts") == nil,
+              let data = Keychain.load(),
+              let token = try? JSONDecoder().decode(Token.self, from: data) else { return }
+        let id = UUID().uuidString
+        token.save(accountID: id)
+        Keychain.delete()
+        if let metas = try? JSONEncoder().encode([AccountMeta(id: id, alias: "Default")]) {
+            UserDefaults.standard.set(metas, forKey: "accounts")
+        }
+        UserDefaults.standard.set(id, forKey: "primaryAccountID")
+    }
+
+    // MARK: - Parsing
 
     static func parse(_ data: Data) -> [UsageWindow] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
@@ -107,7 +233,6 @@ final class UsageModel: ObservableObject {
         for (key, label) in knownLabels {
             if let w = window(key, label) { result.append(w); seen.insert(key) }
         }
-        // future windows the API may add
         for key in json.keys.sorted() where !seen.contains(key) {
             if let w = window(key, key.replacingOccurrences(of: "_", with: " ").capitalized) {
                 result.append(w)

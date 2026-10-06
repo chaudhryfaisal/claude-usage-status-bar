@@ -11,6 +11,9 @@ struct ClaudeBarApp: App {
             MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.window)
+        Window("Claude Usage Dashboard", id: "dashboard") {
+            DashboardView(model: model)
+        }
     }
 }
 
@@ -18,12 +21,15 @@ struct MenuBarLabel: View {
     @ObservedObject var model: UsageModel
 
     var body: some View {
-        if let session = model.sessionUtilization, let weekly = model.weeklyUtilization {
+        if let primary = model.primary,
+           let session = primary.sessionUtilization,
+           let weekly = primary.weeklyUtilization {
             Text("✳ \(Int(session.rounded()))/\(Int(weekly.rounded()))%")
-        } else if let only = model.sessionUtilization ?? model.weeklyUtilization {
+        } else if let primary = model.primary,
+                  let only = primary.sessionUtilization ?? primary.weeklyUtilization {
             Text("✳ \(Int(only.rounded()))%")
         } else {
-            Text(model.connected ? "✳" : "✳ –")
+            Text(model.accounts.isEmpty ? "✳ –" : "✳")
         }
     }
 }

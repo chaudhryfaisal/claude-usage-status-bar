@@ -8,12 +8,12 @@ struct Token: Codable {
 
     var needsRefresh: Bool { expiresAt.timeIntervalSinceNow < 300 }
 
-    static func load() -> Token? {
-        Keychain.load().flatMap { try? JSONDecoder().decode(Token.self, from: $0) }
+    static func load(accountID: String) -> Token? {
+        Keychain.load(accountID: accountID).flatMap { try? JSONDecoder().decode(Token.self, from: $0) }
     }
 
-    func save() {
-        if let data = try? JSONEncoder().encode(self) { Keychain.save(data) }
+    func save(accountID: String) {
+        if let data = try? JSONEncoder().encode(self) { Keychain.save(data, accountID: accountID) }
     }
 }
 
@@ -127,7 +127,6 @@ enum OAuth {
             refreshToken: tr.refresh_token ?? body["refresh_token"] ?? "",
             expiresAt: Date().addingTimeInterval(tr.expires_in)
         )
-        token.save()
         return token
     }
 }
