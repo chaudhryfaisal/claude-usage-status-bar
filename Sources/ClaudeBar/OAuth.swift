@@ -12,6 +12,30 @@ struct Token: Codable {
         Keychain.load(accountID: accountID).flatMap { try? JSONDecoder().decode(Token.self, from: $0) }
     }
 
+    /// Accepts Claude Code's credentials JSON (`{"claudeAiOauth": {...}}` from the
+    /// "Claude Code-credentials" Keychain item, or `.claude/.credentials.json` on Linux),
+    /// a bare `{accessToken, refreshToken, expiresAt}`, or an OAuth token response
+    /// `{access_token, refresh_token, expires_in}`.
+    static func fromJSON(_ text: String) -> Token? {
+        guard let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let root = (obj["claudeAiOauth"] as? [String: Any]) ?? obj
+        guard let access = root["accessToken"] as? String ?? root["access_token"] as? String,
+              !access.isEmpty else { return nil }
+        let refresh = root["refreshToken"] as? String ?? root["refresh_token"] as? String ?? ""
+        let expiresAt: Date
+        if let ms = root["expiresAt"] as? Double, ms > 0 {
+            expiresAt = Date(timeIntervalSince1970: ms > 1e12 ? ms / 1000 : ms)
+        } else if let iso = root["expiresAt"] as? String, let d = UsageModel.parseDate(iso) {
+            expiresAt = d
+        } else if let e = root["expires_in"] as? Double {
+            expiresAt = Date().addingTimeInterval(e)
+        } else {
+            expiresAt = Date().addingTimeInterval(3600)
+        }
+        return Token(accessToken: access, refreshToken: refresh, expiresAt: expiresAt)
+    }
+
     func save(accountID: String) {
         if let data = try? JSONEncoder().encode(self) { Keychain.save(data, accountID: accountID) }
     }
@@ -28,7 +52,7 @@ enum OAuthError: LocalizedError {
 enum OAuth {
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let redirectURI = "https://platform.claude.com/oauth/code/callback"
-    static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    static var tokenURL: URL { URL(string: Config.base(path: "/v1/oauth/token"))! }
     static let scope = "user:profile"
 
     struct PKCE {
@@ -52,7 +76,7 @@ enum OAuth {
     }
 
     static func authorizeURL(_ pkce: PKCE) -> URL {
-        var c = URLComponents(string: "https://claude.ai/oauth/authorize")!
+        var c = URLComponents(string: Config.base(path: "/oauth/authorize"))!
         c.queryItems = [
             .init(name: "code", value: "true"),
             .init(name: "client_id", value: clientID),

@@ -1,9 +1,12 @@
 import SwiftUI
 import ServiceManagement
+import UniformTypeIdentifiers
 
 struct MenuView: View {
     @ObservedObject var model: UsageModel
     @State private var code = ""
+    @State private var importJSON = ""
+    @State private var baseURL = Config.baseURLString
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Environment(\.openWindow) private var openWindow
 
@@ -32,10 +35,7 @@ struct MenuView: View {
                 if model.pendingAuth != nil {
                     codeEntry
                 } else {
-                    Button("+ Add account") { model.startConnect() }
-                        .buttonStyle(.plain)
-                        .font(.subheadline)
-                        .foregroundStyle(.blue)
+                    addAccountSection
                 }
                 if let err = model.lastError {
                     Text(err).font(.caption).foregroundStyle(.red)
@@ -44,6 +44,63 @@ struct MenuView: View {
             }
         }
         .frame(maxHeight: 460)
+    }
+
+    @ViewBuilder
+    private var addAccountSection: some View {
+        switch model.adding {
+        case .none:
+            Button("+ Add account") { model.adding = .chooser }
+                .buttonStyle(.plain)
+                .font(.subheadline)
+                .foregroundStyle(.blue)
+        case .chooser:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("How do you want to add the account?")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Browser sign-in") { model.adding = nil; model.startConnect() }
+                    Button("Import JSON") { model.adding = .importToken }
+                    Button("Cancel") { model.adding = nil }
+                }
+                .font(.subheadline)
+            }
+        case .importToken:
+            importEntry
+        }
+    }
+
+    private var importEntry: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Paste credentials JSON (claudeAiOauth from ~/.claude.json / Claude Code credentials, or an OAuth token response), or choose a file:")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextEditor(text: $importJSON)
+                .font(.caption.monospaced())
+                .frame(height: 70)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
+            HStack(spacing: 12) {
+                Button("Choose File…") { pickFile() }
+                Button("Import") {
+                    let j = importJSON
+                    importJSON = ""
+                    Task { await model.finishImport(json: j) }
+                }
+                .disabled(importJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel") { model.adding = nil; importJSON = "" }
+                Spacer()
+            }
+        }
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url,
+           let text = try? String(contentsOf: url) {
+            importJSON = text
+        }
     }
 
     private var codeEntry: some View {
@@ -73,11 +130,17 @@ struct MenuView: View {
             Text("Connect your Claude account to see your session and weekly limits.")
                 .font(.subheadline).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if model.pendingAuth == nil {
+            Button("or import credentials JSON") { model.adding = .importToken }
+                .buttonStyle(.plain)
+                .font(.subheadline)
+                .foregroundStyle(.blue)
+            if model.pendingAuth != nil {
+                codeEntry
+            } else if model.adding != nil {
+                addAccountSection
+            } else {
                 Button("Connect Claude Account") { model.startConnect() }
                     .controlSize(.large)
-            } else {
-                codeEntry
             }
             if let err = model.lastError {
                 Text(err).font(.caption).foregroundStyle(.red)
@@ -85,6 +148,13 @@ struct MenuView: View {
             }
         }
         .padding(12)
+    }
+
+    private func saveBaseURL() {
+        let v = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(v == Config.defaultBaseURL ? nil : v, forKey: "baseURL")
+        baseURL = Config.baseURLString
+        Task { await model.refreshAll() }
     }
 
     private func submit() {
@@ -109,6 +179,17 @@ struct MenuView: View {
             .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                TextField("Base URL", text: $baseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .onSubmit { saveBaseURL() }
+                footerButton("Save") { saveBaseURL() }
+                footerButton("Reset") {
+                    baseURL = Config.defaultBaseURL
+                    saveBaseURL()
+                }
+            }
             HStack(spacing: 12) {
                 footerButton("Refresh") { Task { await model.refreshAll() } }
                 footerButton("Dashboard") { openWindow(id: "dashboard") }
@@ -168,7 +249,7 @@ struct AccountCard: View {
                 }
                 Spacer()
                 Button {
-                    NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!)
+                    NSWorkspace.shared.open(URL(string: Config.base(path: "/settings/usage"))!)
                 } label: { Image(systemName: "globe") }
                 .buttonStyle(.plain)
                 .help("Open web dashboard")

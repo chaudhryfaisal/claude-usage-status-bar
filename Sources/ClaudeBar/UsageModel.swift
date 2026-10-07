@@ -2,6 +2,22 @@ import Foundation
 import SwiftUI
 import Combine
 
+enum Config {
+    static let defaultBaseURL = "https://claude.ai"
+
+    /// Base URL for all API endpoints, e.g. "https://claude.ai" or "https://domain/path".
+    static var baseURLString: String {
+        let v = UserDefaults.standard.string(forKey: "baseURL") ?? ""
+        return v.isEmpty ? defaultBaseURL : v
+    }
+
+    static func base(path: String) -> String {
+        var b = baseURLString
+        while b.hasSuffix("/") { b.removeLast() }
+        return b + path
+    }
+}
+
 struct UsageWindow: Identifiable {
     let id: String
     let label: String
@@ -89,11 +105,14 @@ final class UsageModel: ObservableObject {
     @Published var pendingAuth: OAuth.PKCE?
     @Published var pendingReauthID: String?
     @Published var lastError: String?
+    @Published var adding: AddMode?
+
+    enum AddMode { case chooser, importToken }
 
     private var cancellables: Set<AnyCancellable> = []
-    static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    static var usageURL: URL { URL(string: Config.base(path: "/api/oauth/usage"))! }
     private var timer: Timer?
-    private static let knownLabels: [(key: String, label: String)] = [
+    nonisolated private static let knownLabels: [(key: String, label: String)] = [
         ("five_hour", "Session (5h)"),
         ("seven_day", "Weekly"),
         ("seven_day_opus", "Weekly · Opus"),
@@ -150,6 +169,25 @@ final class UsageModel: ObservableObject {
         if primaryID == account.id { primaryID = accounts.first?.id }
         persist()
         observeAccounts()
+    }
+
+    // MARK: - Import
+
+    func finishImport(json: String) async {
+        guard let token = Token.fromJSON(json) else {
+            lastError = "Couldn't parse that JSON — expected accessToken/refreshToken/expiresAt."
+            return
+        }
+        let id = UUID().uuidString
+        token.save(accountID: id)
+        let acc = AccountModel(id: id, alias: "Account \(accounts.count + 1)")
+        accounts.append(acc)
+        observeAccounts()
+        if primaryID == nil { primaryID = id }
+        lastError = nil
+        adding = nil
+        persist()
+        await acc.refresh()
     }
 
     // MARK: - Connect flow
@@ -236,7 +274,7 @@ final class UsageModel: ObservableObject {
 
     // MARK: - Parsing
 
-    static func parse(_ data: Data) -> [UsageWindow] {
+    nonisolated static func parse(_ data: Data) -> [UsageWindow] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         var result: [UsageWindow] = []
         var seen = Set<String>()
@@ -258,7 +296,7 @@ final class UsageModel: ObservableObject {
         return result
     }
 
-    static func parseDate(_ s: String) -> Date? {
+    nonisolated static func parseDate(_ s: String) -> Date? {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = f.date(from: s) { return d }

@@ -40,7 +40,7 @@ struct DashboardCard: View {
             Divider()
             HStack {
                 Button("Open web dashboard") {
-                    NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/usage")!)
+                    NSWorkspace.shared.open(URL(string: Config.base(path: "/settings/usage"))!)
                 }
                 Spacer()
                 Button("Disconnect", role: .destructive) { model.disconnect(account) }

@@ -48,6 +48,27 @@ Override the install location with `make install INSTALL_DIR=~/Applications`.
 
 Click the ✳ icon, then **Connect Claude Account**. Your browser opens claude.ai. Approve access, copy the code shown, and paste it into the popover. That's it. Repeat with **+ Add account** to add more accounts, then set an alias and star a primary.
 
+## Import credentials instead of OAuth
+
+When adding an account you can pick **Import JSON** instead and paste token info or choose a `.json` file. Accepted shapes:
+
+```jsonc
+// Claude Code credentials (from the "Claude Code-credentials" Keychain item)
+{"claudeAiOauth": {"accessToken": "...", "refreshToken": "...", "expiresAt": 1760000000000}}
+
+// bare token info
+{"accessToken": "...", "refreshToken": "...", "expiresAt": 1760000000000}
+
+// OAuth token response
+{"access_token": "...", "refresh_token": "...", "expires_in": 3600}
+```
+
+Minimum is `accessToken` alone, but without `refreshToken` the account will stop working once the token expires (ClaudeBar will ask you to reconnect), so include `refreshToken` and `expiresAt` when you have them. `expiresAt` accepts epoch milliseconds, epoch seconds, or an ISO 8601 string. To pull Claude Code's token out of the Keychain:
+
+```bash
+security find-generic-password -w -s "Claude Code-credentials"
+```
+
 ## Security and privacy
 
 - ClaudeBar signs in with its own OAuth token requesting only the read-only `user:profile` scope. It can see your usage numbers and nothing else. It cannot send messages or spend your quota, even if the token were stolen.
