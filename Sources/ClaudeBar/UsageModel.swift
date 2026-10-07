@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 struct UsageWindow: Identifiable {
     let id: String
@@ -89,6 +90,7 @@ final class UsageModel: ObservableObject {
     @Published var pendingReauthID: String?
     @Published var lastError: String?
 
+    private var cancellables: Set<AnyCancellable> = []
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private var timer: Timer?
     private static let knownLabels: [(key: String, label: String)] = [
@@ -100,10 +102,22 @@ final class UsageModel: ObservableObject {
     init() {
         migrateLegacyToken()
         loadState()
+        observeAccounts()
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { await self?.refreshAll() }
         }
         Task { await refreshAll() }
+    }
+
+    /// Forward each account's changes so views observing the model (e.g. the
+    /// menu bar label) re-render when any account's data updates.
+    private func observeAccounts() {
+        cancellables.removeAll()
+        for acc in accounts {
+            acc.objectWillChange
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+                .store(in: &cancellables)
+        }
     }
 
     var primary: AccountModel? {
@@ -135,6 +149,7 @@ final class UsageModel: ObservableObject {
         accounts.removeAll { $0.id == account.id }
         if primaryID == account.id { primaryID = accounts.first?.id }
         persist()
+        observeAccounts()
     }
 
     // MARK: - Connect flow
@@ -161,6 +176,7 @@ final class UsageModel: ObservableObject {
                 token.save(accountID: id)
                 let acc = AccountModel(id: id, alias: "Account \(accounts.count + 1)")
                 accounts.append(acc)
+                observeAccounts()
                 if primaryID == nil { primaryID = id }
                 await acc.refresh()
             }
@@ -199,6 +215,7 @@ final class UsageModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "accounts"),
            let metas = try? JSONDecoder().decode([AccountMeta].self, from: data) {
             accounts = metas.map { AccountModel(id: $0.id, alias: $0.alias) }
+        observeAccounts()
         }
         if primaryID == nil { primaryID = accounts.first?.id }
     }
