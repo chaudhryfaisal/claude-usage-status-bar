@@ -20,7 +20,7 @@ struct ClaudeBarApp: App {
 struct MenuBarLabel: View {
     @ObservedObject var model: UsageModel
 
-    private func pct(_ v: Double) -> String { String(format: "%.1f", v) }
+    private func pct(_ v: Double) -> String { String(format: "%.2f", v) }
 
     var body: some View {
         if let primary = model.primary,

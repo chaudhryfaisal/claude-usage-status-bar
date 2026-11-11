@@ -111,8 +111,7 @@ struct WindowRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(w.label)
                 Spacer()
-                let pct = Int(w.utilization.rounded())
-                Text(w.detail ?? "\(pct)%")
+                Text(w.detail ?? w.percentText)
                     .monospacedDigit().fontWeight(.medium)
                     .foregroundStyle(w.utilization >= 70 ? w.color : .primary)
             }

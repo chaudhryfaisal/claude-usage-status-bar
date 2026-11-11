@@ -325,12 +325,12 @@ final class UsageModel: ObservableObject {
         let used = entitlement > 0 ? entitlement - remaining : 0
         let usedPct = entitlement > 0 ? used / entitlement * 100 : 100 - pctLeft
         let credits = q["credits_used"] as? Double ?? 0
-        func k(_ v: Double) -> String { String(format: "%.1fK", v / 1000) }
+        func k(_ v: Double) -> String { String(format: "%.2fK", v / 1000) }
         let reset = (json["quota_reset_date_utc"] as? String).flatMap(parseDate)
         return [
             UsageWindow(id: "premium_interactions", label: "Copilot · Premium",
                         utilization: usedPct, resetsAt: reset,
-                        detail: "\(k(used)) / \(k(remaining)) (\(String(format: "%.1f", usedPct))%)"),
+                        detail: "\(k(used)) / \(k(remaining)) (\(String(format: "%.2f", usedPct))%)"),
             UsageWindow(id: "credits_used", label: "Copilot · Credits used",
                         utilization: entitlement > 0 ? credits / entitlement * 100 : 0, resetsAt: nil,
                         detail: Int(credits.rounded()).formatted(.number.grouping(.automatic)) + " credits"),
@@ -369,6 +369,8 @@ final class UsageModel: ObservableObject {
 }
 
 extension UsageWindow {
+    var percentText: String { String(format: "%.2f%%", utilization) }
+
     var resetText: String? {
         guard let resetsAt else { return nil }
         let f = DateFormatter()

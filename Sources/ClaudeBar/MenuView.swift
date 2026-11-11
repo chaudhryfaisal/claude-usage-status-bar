@@ -323,7 +323,7 @@ struct AccountCard: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(w.label).font(.subheadline)
                             Spacer()
-                            Text(w.detail ?? "\(Int(w.utilization.rounded()))%")
+                            Text(w.detail ?? w.percentText)
                                 .font(.subheadline.monospacedDigit().weight(.medium))
                                 .foregroundStyle(w.utilization >= 70 ? w.color : .primary)
                         }

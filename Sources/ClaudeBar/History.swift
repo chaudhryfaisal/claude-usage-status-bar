@@ -96,7 +96,7 @@ struct HistoryChart: View {
                     RuleMark(x: .value("Time", h.t))
                         .foregroundStyle(.secondary.opacity(0.4))
                         .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                            Text("\(h.t.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(String(format: "%.1f", h.v))%")
+                            Text("\(h.t.formatted(.dateTime.month(.abbreviated).day().hour().minute())) · \(String(format: "%.2f", h.v))%")
                                 .font(.caption2)
                                 .padding(.horizontal, 4).padding(.vertical, 2)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
