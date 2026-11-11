@@ -69,6 +69,7 @@ final class History {
 struct HistoryChart: View {
     let samples: [Sample]
     let color: Color
+    var height: CGFloat = 90
     @State private var hover: Sample?
 
     private var line: [Sample] {
@@ -121,7 +122,7 @@ struct HistoryChart: View {
                         }
                 }
             }
-            .frame(height: 90)
+            .frame(height: height)
         }
     }
 }

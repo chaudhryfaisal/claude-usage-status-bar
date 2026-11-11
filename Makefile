@@ -8,7 +8,7 @@ SOURCES     := $(wildcard Sources/ClaudeBar/*.swift)
 KEYCHAIN    := security delete-generic-password -s com.claudebar.oauth
 
 .DEFAULT_GOAL := all
-.PHONY: all build install open uninstall cert clean
+.PHONY: all build install open uninstall cert clean show-history
 
 ## build: compile ClaudeBar.app in this directory
 build: $(APP)
@@ -51,6 +51,13 @@ cert:
 clean:
 	@rm -rf "$(APP)" .build
 	@echo "Cleaned."
+
+## show-history: print the recorded usage history (change points per account/window)
+show-history:
+	@python3 -c 'import json,os,datetime as d; p=os.path.expanduser("~/Library/Application Support/ClaudeBar/history.json"); \
+	h=json.load(open(p)) if os.path.exists(p) else {}; \
+	print("No history yet.") if not h else None; \
+	[print(k+"\n"+"\n".join("  %s  %.2f%%"%(d.datetime.fromtimestamp(s["t"]).strftime("%Y-%m-%d %H:%M:%S"),s["v"]) for s in v)) for k,v in sorted(h.items())]'
 
 ## install: build and copy the app to INSTALL_DIR (may prompt for sudo)
 install: build

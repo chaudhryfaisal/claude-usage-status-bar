@@ -38,6 +38,7 @@ Requires macOS 13+ and the Swift toolchain. Running `xcode-select --install` is 
 | --- | --- |
 | `make` / `make all` | build, install, open |
 | `make clean` | remove build outputs |
+| `make show-history` | print recorded usage history |
 | `make build` | compile `ClaudeBar.app` in this directory |
 | `make install` | build and copy the app to `INSTALL_DIR` (default `/Applications`) |
 | `make open` | launch the installed app |

@@ -338,6 +338,8 @@ struct AccountCard: View {
                         if let reset = w.resetText {
                             Text(reset).font(.caption).foregroundStyle(.secondary)
                         }
+                        HistoryChart(samples: History.shared.currentPeriod(accountID: account.id, windowID: w.id),
+                                     color: w.color == .secondary ? .accentColor : w.color, height: 60)
                     }
                 }
             }
