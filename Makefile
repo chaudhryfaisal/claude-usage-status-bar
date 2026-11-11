@@ -1,13 +1,54 @@
-INSTALL_DIR ?= /Applications
+INSTALL_DIR ?= $(HOME)/Applications
 APP         := ClaudeBar.app
+# Keychain access is tied to the code signature; "-" (ad-hoc) changes on every build.
+# Use a stable identity: make install SIGN_ID="Apple Development: Name (TEAMID)"
+SIGN_ID     ?= ClaudeBar Dev
+CERT_NAME   ?= ClaudeBar Dev
+SOURCES     := $(wildcard Sources/ClaudeBar/*.swift)
 KEYCHAIN    := security delete-generic-password -s com.claudebar.oauth
 
 .DEFAULT_GOAL := all
-.PHONY: all build install open uninstall
+.PHONY: all build install open uninstall cert clean
 
 ## build: compile ClaudeBar.app in this directory
-build:
-	@./scripts/build-app.sh
+build: $(APP)
+
+$(APP): $(SOURCES) Makefile
+	@rm -rf "$(APP)"
+	@mkdir -p "$(APP)/Contents/MacOS"
+	swiftc -O -parse-as-library -target "$$(uname -m)-apple-macos13.0" $(SOURCES) -o "$(APP)/Contents/MacOS/ClaudeBar"
+	@printf '%s\n' \
+	  '<?xml version="1.0" encoding="UTF-8"?>' \
+	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+	  '<plist version="1.0"><dict>' \
+	  '<key>CFBundleExecutable</key><string>ClaudeBar</string>' \
+	  '<key>CFBundleIdentifier</key><string>com.claudebar.app</string>' \
+	  '<key>CFBundleName</key><string>ClaudeBar</string>' \
+	  '<key>CFBundleDisplayName</key><string>ClaudeBar</string>' \
+	  '<key>CFBundlePackageType</key><string>APPL</string>' \
+	  '<key>CFBundleShortVersionString</key><string>1.0.0</string>' \
+	  '<key>CFBundleVersion</key><string>1</string>' \
+	  '<key>LSMinimumSystemVersion</key><string>13.0</string>' \
+	  '<key>LSUIElement</key><true/>' \
+	  '<key>NSHumanReadableCopyright</key><string>MIT License</string>' \
+	  '</dict></plist>' > "$(APP)/Contents/Info.plist"
+	@codesign --force --sign "$(SIGN_ID)" "$(APP)"
+	@echo "Built $(APP) — run: open $(APP)"
+
+## cert: create a self-signed code-signing certificate in the login keychain (one time)
+cert:
+	@security find-identity -p codesigning | grep -q "$(CERT_NAME)" && { echo "$(CERT_NAME) already exists"; exit 0; }; \
+	d=$$(mktemp -d) && \
+	printf '[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=$(CERT_NAME)\n[ext]\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n' > $$d/c.cnf && \
+	openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config $$d/c.cnf -keyout $$d/k.pem -out $$d/c.pem 2>/dev/null && \
+	openssl pkcs12 -export -legacy -inkey $$d/k.pem -in $$d/c.pem -passout pass:x -out $$d/c.p12 2>/dev/null || openssl pkcs12 -export -inkey $$d/k.pem -in $$d/c.pem -passout pass:x -out $$d/c.p12; \
+	security import $$d/c.p12 -P x -T /usr/bin/codesign -k ~/Library/Keychains/login.keychain-db && \
+	echo "Created '$(CERT_NAME)'. Now run: make install SIGN_ID=\"$(CERT_NAME)\""; rm -rf $$d
+
+## clean: remove build outputs
+clean:
+	@rm -rf "$(APP)" .build
+	@echo "Cleaned."
 
 ## install: build and copy the app to INSTALL_DIR (may prompt for sudo)
 install: build

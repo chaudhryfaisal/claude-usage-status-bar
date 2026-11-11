@@ -6,6 +6,7 @@ struct MenuView: View {
     @ObservedObject var model: UsageModel
     @State private var code = ""
     @State private var importJSON = ""
+    @State private var githubToken = ""
     @State private var baseURL = Config.baseURLString
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Environment(\.openWindow) private var openWindow
@@ -26,24 +27,32 @@ struct MenuView: View {
 
     // MARK: - Accounts
 
-    private var accounts: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(model.accounts) { account in
-                    AccountCard(account: account, model: model)
-                }
-                if model.pendingAuth != nil {
-                    codeEntry
-                } else {
-                    addAccountSection
-                }
-                if let err = model.lastError {
-                    Text(err).font(.caption).foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+    private var accountList: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(model.accounts) { account in
+                AccountCard(account: account, model: model)
+            }
+            if model.pendingAuth != nil {
+                codeEntry
+            } else {
+                addAccountSection
+            }
+            if let err = model.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxHeight: 460)
+    }
+
+    // A ScrollView has no intrinsic height in MenuBarExtra and collapses to nothing,
+    // so only use one (with a fixed height) when there are many accounts.
+    @ViewBuilder
+    private var accounts: some View {
+        if model.accounts.count > 3 {
+            ScrollView { accountList }.frame(height: 460)
+        } else {
+            accountList.padding(.top, 12)
+        }
     }
 
     @ViewBuilder
@@ -61,12 +70,35 @@ struct MenuView: View {
                 HStack(spacing: 12) {
                     Button("Browser sign-in") { model.adding = nil; model.startConnect() }
                     Button("Import JSON") { model.adding = .importToken }
+                    Button("GitHub") { model.adding = .githubToken }
                     Button("Cancel") { model.adding = nil }
                 }
                 .font(.subheadline)
             }
         case .importToken:
             importEntry
+        case .githubToken:
+            githubEntry
+        }
+    }
+
+    private var githubEntry: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Paste a GitHub token with Copilot access (used for api.github.com/copilot_internal/user):")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            SecureField("Token", text: $githubToken)
+                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 12) {
+                Button("Add") {
+                    let t = githubToken
+                    githubToken = ""
+                    Task { await model.addGitHub(token: t) }
+                }
+                .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel") { model.adding = nil; githubToken = "" }
+                Spacer()
+            }
         }
     }
 
@@ -130,10 +162,13 @@ struct MenuView: View {
             Text("Connect your Claude account to see your session and weekly limits.")
                 .font(.subheadline).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("or import credentials JSON") { model.adding = .importToken }
-                .buttonStyle(.plain)
-                .font(.subheadline)
-                .foregroundStyle(.blue)
+            HStack(spacing: 12) {
+                Button("or import credentials JSON") { model.adding = .importToken }
+                Button("add GitHub Copilot") { model.adding = .githubToken }
+            }
+            .buttonStyle(.plain)
+            .font(.subheadline)
+            .foregroundStyle(.blue)
             if model.pendingAuth != nil {
                 codeEntry
             } else if model.adding != nil {
@@ -249,7 +284,9 @@ struct AccountCard: View {
                 }
                 Spacer()
                 Button {
-                    NSWorkspace.shared.open(URL(string: Config.base(path: "/settings/usage"))!)
+                    NSWorkspace.shared.open(account.isGitHub
+                        ? URL(string: "https://github.com/settings/copilot/features")!
+                        : URL(string: Config.base(path: "/settings/usage"))!)
                 } label: { Image(systemName: "globe") }
                 .buttonStyle(.plain)
                 .help("Open web dashboard")
@@ -271,8 +308,12 @@ struct AccountCard: View {
                     Text(account.lastError ?? "Disconnected.")
                         .font(.caption).foregroundStyle(.red)
                     Spacer()
-                    Button("Reconnect") { model.startConnect(reauth: account) }
-                        .font(.caption)
+                    if account.isGitHub {
+                        Button("Remove") { model.disconnect(account) }.font(.caption)
+                    } else {
+                        Button("Reconnect") { model.startConnect(reauth: account) }
+                            .font(.caption)
+                    }
                 }
             } else if account.windows.isEmpty {
                 Text("Loading…").font(.subheadline).foregroundStyle(.secondary)
@@ -282,7 +323,7 @@ struct AccountCard: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(w.label).font(.subheadline)
                             Spacer()
-                            Text("\(Int(w.utilization.rounded()))%")
+                            Text(w.detail ?? "\(Int(w.utilization.rounded()))%")
                                 .font(.subheadline.monospacedDigit().weight(.medium))
                                 .foregroundStyle(w.utilization >= 70 ? w.color : .primary)
                         }

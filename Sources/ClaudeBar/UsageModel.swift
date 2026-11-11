@@ -23,16 +23,19 @@ struct UsageWindow: Identifiable {
     let label: String
     let utilization: Double   // 0–100
     let resetsAt: Date?
+    var detail: String? = nil
 }
 
 struct AccountMeta: Codable {
     let id: String
     var alias: String
+    var kind: String? = nil   // nil = Claude, "github" = GitHub Copilot
 }
 
 @MainActor
 final class AccountModel: ObservableObject, Identifiable {
     let id: String
+    let isGitHub: Bool
     @Published var alias: String
     @Published var windows: [UsageWindow] = []
     @Published var connected: Bool
@@ -40,8 +43,9 @@ final class AccountModel: ObservableObject, Identifiable {
     @Published var lastError: String?
     @Published var lastRefreshed: Date?
 
-    init(id: String, alias: String) {
+    init(id: String, alias: String, isGitHub: Bool = false) {
         self.id = id
+        self.isGitHub = isGitHub
         self.alias = alias
         self.connected = Token.load(accountID: id) != nil
     }
@@ -58,7 +62,7 @@ final class AccountModel: ObservableObject, Identifiable {
     }
 
     var sessionUtilization: Double? { windows.first { $0.id == "five_hour" }?.utilization }
-    var weeklyUtilization: Double? { windows.first { $0.id == "seven_day" }?.utilization }
+    var weeklyUtilization: Double? { windows.first { $0.id == "seven_day" || $0.id == "premium_interactions" }?.utilization }
 
     func refresh() async {
         guard var token = Token.load(accountID: id) else {
@@ -67,6 +71,26 @@ final class AccountModel: ObservableObject, Identifiable {
             return
         }
         do {
+            if isGitHub {
+                var req = URLRequest(url: URL(string: "https://api.github.com/copilot_internal/user")!)
+                req.setValue("Bearer \(token.accessToken)", forHTTPHeaderField: "Authorization")
+                req.setValue("application/json", forHTTPHeaderField: "Accept")
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 401 || status == 403 {
+                    connected = false
+                    windows = []
+                    lastError = "Token rejected — reconnect this account."
+                    return
+                }
+                guard status == 200 else { stale = true; return }
+                connected = true
+                windows = UsageModel.parseCopilot(data)
+                stale = false
+                lastError = nil
+                lastRefreshed = Date()
+                return
+            }
             if token.needsRefresh {
                 token = try await OAuth.refresh(token)
                 token.save(accountID: id)
@@ -107,7 +131,7 @@ final class UsageModel: ObservableObject {
     @Published var lastError: String?
     @Published var adding: AddMode?
 
-    enum AddMode { case chooser, importToken }
+    enum AddMode { case chooser, importToken, githubToken }
 
     private var cancellables: Set<AnyCancellable> = []
     static var usageURL: URL { URL(string: Config.base(path: "/api/oauth/usage"))! }
@@ -190,6 +214,21 @@ final class UsageModel: ObservableObject {
         await acc.refresh()
     }
 
+    func addGitHub(token raw: String) async {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        let id = UUID().uuidString
+        Token(accessToken: t, refreshToken: "", expiresAt: .distantFuture).save(accountID: id)
+        let acc = AccountModel(id: id, alias: "GitHub Copilot", isGitHub: true)
+        accounts.append(acc)
+        observeAccounts()
+        if primaryID == nil { primaryID = id }
+        lastError = nil
+        adding = nil
+        persist()
+        await acc.refresh()
+    }
+
     // MARK: - Connect flow
 
     func startConnect(reauth account: AccountModel? = nil) {
@@ -243,7 +282,7 @@ final class UsageModel: ObservableObject {
     // MARK: - Persistence
 
     private func persist() {
-        let metas = accounts.map { AccountMeta(id: $0.id, alias: $0.alias) }
+        let metas = accounts.map { AccountMeta(id: $0.id, alias: $0.alias, kind: $0.isGitHub ? "github" : nil) }
         UserDefaults.standard.set(try? JSONEncoder().encode(metas), forKey: "accounts")
         UserDefaults.standard.set(primaryID, forKey: "primaryAccountID")
     }
@@ -252,7 +291,7 @@ final class UsageModel: ObservableObject {
         primaryID = UserDefaults.standard.string(forKey: "primaryAccountID")
         if let data = UserDefaults.standard.data(forKey: "accounts"),
            let metas = try? JSONDecoder().decode([AccountMeta].self, from: data) {
-            accounts = metas.map { AccountModel(id: $0.id, alias: $0.alias) }
+            accounts = metas.map { AccountModel(id: $0.id, alias: $0.alias, isGitHub: $0.kind == "github") }
         observeAccounts()
         }
         if primaryID == nil { primaryID = accounts.first?.id }
@@ -273,6 +312,27 @@ final class UsageModel: ObservableObject {
     }
 
     // MARK: - Parsing
+
+    nonisolated static func parseCopilot(_ data: Data) -> [UsageWindow] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let q = (json["quota_snapshots"] as? [String: Any])?["premium_interactions"] as? [String: Any],
+              let pctLeft = q["percent_remaining"] as? Double else { return [] }
+        let entitlement = q["entitlement"] as? Double ?? 0
+        let remaining = q["remaining"] as? Double ?? q["quota_remaining"] as? Double ?? 0
+        let used = entitlement > 0 ? entitlement - remaining : 0
+        let usedPct = entitlement > 0 ? used / entitlement * 100 : 100 - pctLeft
+        let credits = q["credits_used"] as? Double ?? 0
+        func k(_ v: Double) -> String { String(format: "%.1fK", v / 1000) }
+        let reset = (json["quota_reset_date_utc"] as? String).flatMap(parseDate)
+        return [
+            UsageWindow(id: "premium_interactions", label: "Copilot · Premium",
+                        utilization: usedPct, resetsAt: reset,
+                        detail: "\(k(used)) / \(k(remaining)) (\(String(format: "%.1f", usedPct))%)"),
+            UsageWindow(id: "credits_used", label: "Copilot · Credits used",
+                        utilization: entitlement > 0 ? credits / entitlement * 100 : 0, resetsAt: nil,
+                        detail: Int(credits.rounded()).formatted(.number.grouping(.automatic)) + " credits"),
+        ]
+    }
 
     nonisolated static func parse(_ data: Data) -> [UsageWindow] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }

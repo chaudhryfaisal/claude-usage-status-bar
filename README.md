@@ -25,7 +25,7 @@ Or without make:
 ```bash
 git clone https://github.com/ousid/claudebar
 cd claudebar
-./scripts/build-app.sh
+make build
 cp -r ClaudeBar.app /Applications/
 open /Applications/ClaudeBar.app
 ```

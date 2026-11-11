@@ -6,7 +6,7 @@ struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Claude Usage Dashboard").font(.title2.weight(.semibold))
+                Text("Usage Dashboard").font(.title2.weight(.semibold))
                 Spacer()
                 Button("Refresh all") { Task { await model.refreshAll() } }
             }
@@ -40,7 +40,9 @@ struct DashboardCard: View {
             Divider()
             HStack {
                 Button("Open web dashboard") {
-                    NSWorkspace.shared.open(URL(string: Config.base(path: "/settings/usage"))!)
+                    NSWorkspace.shared.open(account.isGitHub
+                        ? URL(string: "https://github.com/settings/billing/premium_requests_usage")!
+                        : URL(string: Config.base(path: "/settings/usage"))!)
                 }
                 Spacer()
                 Button("Disconnect", role: .destructive) { model.disconnect(account) }
@@ -84,7 +86,11 @@ struct DashboardCard: View {
             if !account.connected {
                 Text(account.lastError ?? "Disconnected.")
                     .foregroundStyle(.red)
-                Button("Reconnect") { model.startConnect(reauth: account) }
+                if account.isGitHub {
+                    Button("Remove") { model.disconnect(account) }
+                } else {
+                    Button("Reconnect") { model.startConnect(reauth: account) }
+                }
             } else if account.windows.isEmpty {
                 Text("Loading…").foregroundStyle(.secondary)
             } else {
@@ -105,7 +111,7 @@ struct WindowRow: View {
                 Text(w.label)
                 Spacer()
                 let pct = Int(w.utilization.rounded())
-                Text("\(pct)%")
+                Text(w.detail ?? "\(pct)%")
                     .monospacedDigit().fontWeight(.medium)
                     .foregroundStyle(w.utilization >= 70 ? w.color : .primary)
             }
