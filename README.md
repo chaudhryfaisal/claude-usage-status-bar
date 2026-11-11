@@ -37,6 +37,7 @@ Requires macOS 13+ and the Swift toolchain. Running `xcode-select --install` is 
 | Target | What it does |
 | --- | --- |
 | `make` / `make all` | build, install, open |
+| `make clean` | remove build outputs |
 | `make build` | compile `ClaudeBar.app` in this directory |
 | `make install` | build and copy the app to `INSTALL_DIR` (default `/Applications`) |
 | `make open` | launch the installed app |
@@ -92,3 +93,7 @@ ClaudeBar is an independent open-source project, not affiliated with or endorsed
 ## License
 
 [MIT](LICENSE)
+
+### History chart
+
+The Dashboard shows a step chart per usage window. A point is stored only when the value changes (in `~/Library/Application Support/ClaudeBar/history.json`), and the chart covers the current period, restarting after a reset. Hover to see the time and value of a point.

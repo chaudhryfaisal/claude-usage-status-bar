@@ -95,7 +95,7 @@ struct DashboardCard: View {
                 Text("Loading…").foregroundStyle(.secondary)
             } else {
                 ForEach(account.windows) { w in
-                    WindowRow(w: w)
+                    WindowRow(w: w, accountID: account.id)
                 }
             }
         }
@@ -104,6 +104,7 @@ struct DashboardCard: View {
 
 struct WindowRow: View {
     let w: UsageWindow
+    let accountID: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -120,6 +121,8 @@ struct WindowRow: View {
             if let reset = w.resetText {
                 Text(reset).font(.caption).foregroundStyle(.secondary)
             }
+            HistoryChart(samples: History.shared.currentPeriod(accountID: accountID, windowID: w.id), color: w.color == .secondary ? .accentColor : w.color)
+                .padding(.top, 4)
         }
     }
 }

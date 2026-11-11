@@ -86,6 +86,7 @@ final class AccountModel: ObservableObject, Identifiable {
                 guard status == 200 else { stale = true; return }
                 connected = true
                 windows = UsageModel.parseCopilot(data)
+                History.shared.record(accountID: id, windows: windows)
                 stale = false
                 lastError = nil
                 lastRefreshed = Date()
@@ -113,6 +114,7 @@ final class AccountModel: ObservableObject, Identifiable {
             }
             connected = true
             windows = UsageModel.parse(data)
+            History.shared.record(accountID: id, windows: windows)
             stale = false
             lastError = nil
             lastRefreshed = Date()
@@ -189,6 +191,7 @@ final class UsageModel: ObservableObject {
 
     func disconnect(_ account: AccountModel) {
         Keychain.delete(accountID: account.id)
+        History.shared.remove(accountID: account.id)
         accounts.removeAll { $0.id == account.id }
         if primaryID == account.id { primaryID = accounts.first?.id }
         persist()
