@@ -8,6 +8,28 @@ SOURCES     := $(wildcard Sources/ClaudeBar/*.swift)
 KEYCHAIN    := security delete-generic-password -s com.claudebar.oauth
 
 .DEFAULT_GOAL := all
+define SHOW_HISTORY
+import json, os, time, datetime as d
+p = os.path.expanduser("~/Library/Application Support/ClaudeBar/history.json")
+h = json.load(open(p)) if os.path.exists(p) else {}
+def dur(s):
+    s = int(s)
+    if s < 60: return "%ds" % s
+    if s < 3600: return "%dm" % (s // 60)
+    if s < 86400: return "%dh%dm" % (s // 3600, s % 3600 // 60)
+    return "%dd%dh" % (s // 86400, s % 86400 // 3600)
+now = time.time()
+if not h: print("No history yet.")
+for k, v in sorted(h.items()):
+    print(k)
+    prev = None
+    for x in v:
+        took = "start" if prev is None else "in " + dur(x["t"] - prev)
+        print("  %s  %.2f%% (%s) (%s ago)" % (d.datetime.fromtimestamp(x["t"]).strftime("%Y-%m-%d %H:%M:%S"), x["v"], took, dur(now - x["t"])))
+        prev = x["t"]
+endef
+export SHOW_HISTORY
+
 .PHONY: all build install open uninstall cert clean show-history
 
 ## build: compile ClaudeBar.app in this directory
@@ -54,10 +76,7 @@ clean:
 
 ## show-history: print the recorded usage history (change points per account/window)
 show-history:
-	@python3 -c 'import json,os,datetime as d; p=os.path.expanduser("~/Library/Application Support/ClaudeBar/history.json"); \
-	h=json.load(open(p)) if os.path.exists(p) else {}; \
-	print("No history yet.") if not h else None; \
-	[print(k+"\n"+"\n".join("  %s  %.2f%%"%(d.datetime.fromtimestamp(s["t"]).strftime("%Y-%m-%d %H:%M:%S"),s["v"]) for s in v)) for k,v in sorted(h.items())]'
+	@python3 -c "$$SHOW_HISTORY"
 
 ## install: build and copy the app to INSTALL_DIR (may prompt for sudo)
 install: build
